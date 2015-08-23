@@ -1,0 +1,212 @@
+---
+title: "Practical Machine Language Project"
+author: "Rayned Wiles"
+date: "Saturday, August 15, 2015"
+output: html_document
+---
+
+### Introduction  
+This project uses the Weight Lifting Exercises Data set from http://groupware.les.inf.puc-rio.br/har to develop a machine language algorithm that can determine how well six participants performed a particular activity.  Participants were asked to perform one set of 10 repetitions of unilateral biceps dumbbell curls correctly and incorrectly in five different ways.  Data was collected from accelerometers on the belt, forearm, arm, and dumbbell of the six participants. The five ways are as follows.  
+Class A: exactly according to the specification;  
+Class B: throwing the elbows to the front;  
+Class C: lifting the dumbbell only halfway;  
+Class D: lowering the dumbbell only halfway;  
+Class E: throwing the hips to the front.  
+
+
+
+### Load Data  
+The data was read from the website and loaded into data frames.  There were two data sets on the website, a training/testing set and a validation set.  
+
+```{r loaddata}
+# read training and testing data
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+validUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+pmltrain <- read.csv(url(trainUrl), header=TRUE, sep=",", na.strings=c("NA","#DIV/0!",""))
+pmlvalid <- read.csv(url(validUrl), header=TRUE, sep=",", na.strings=c("NA","#DIV/0!",""))
+
+```  
+
+### Exploratory Analysis  
+Some exploratory analyses were performed on the data.  The training/testing dataset had 19622 observations and 160 variables.  The validation set had 20 observations and 160 variables.  
+
+
+```{r exploredata}
+#dim(pmltrain)
+#dim(pmlvalid)
+#head(pmltrain)
+#str(pmltrain, list.len=160)
+#summary(pmltrain)
+#names(pmltrain)
+#head(pmlvalid)
+#str(pmlvalid, list.len=160)
+#summary(pmlvalid)
+#names(pmlvalid)
+```  
+
+### Clean Data  
+The exploratory analysis suggested that several of the variables in the dataset were not needed for the model. In particular, the descriptive and logical variables.  
+
+```{r datacleanup1}
+logVar <- sapply(pmltrain,is.logical)
+#names(pmltrain[,logVar])
+factorVar <- sapply(pmltrain,is.factor)
+#names(pmltrain[,factorVar])
+```  
+The first seven variables are descriptive and can be dropped from the dataset.
+ The following variables are logical and can also be dropped: "kurtosis_yaw_belt","skewness_yaw_belt","kurtosis_yaw_dumbbell","skewness_yaw_dumbbell","kurtosis_yaw_forearm","skewness_yaw_forearm"
+
+```{r datacleanup2}
+# Drop descriptive and logical columns
+dropVar <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window","num_window","kurtosis_yaw_belt","skewness_yaw_belt","kurtosis_yaw_dumbbell","skewness_yaw_dumbbell","kurtosis_yaw_forearm","skewness_yaw_forearm")
+
+pmltrain2 <- pmltrain[ , -which(names(pmltrain) %in% dropVar)]
+pmlvalid2 <- pmlvalid[ , -which(names(pmlvalid) %in% dropVar)]
+```  
+
+The exploratory analysis also revealed that some variables had a significant number of missing data.  Only 53 variables had no missing data (NAs).  The remaining variables are over 97% NAs.  A decision was made to drop the high NAs columns.  This left 53 columns in the dataset.  A separate dataset was created by removing the highly correlated predictors which left 46 variables in that dataset.  
+
+
+```{r datacleanup3}
+pmldataNAs <- colSums(sapply(pmltrain2, is.na))
+#table(pmldataNAs)
+pmltrain2 <- pmltrain2[,pmldataNAs == 0]
+pmlvalid2 <- pmlvalid2[,pmldataNAs == 0]
+# ncol(pmltrain2)
+# [1] 53
+# ncol(pmlvalid2)
+# [1] 53
+
+# Check for Near Zero Covariates
+library(caret)
+nsv <- nearZeroVar(pmltrain2,saveMetrics=TRUE)
+#nsv[,nsv$zeroVar==TRUE|nsv$nsv==TRUE]
+#data frame with 0 columns and 53 rows
+
+# Check for Correlated Predictors
+highcor <- findCorrelation(cor(pmltrain2[, -53]), cutoff=0.9)
+# [1] 10  1  9  8 31 33 18
+names(pmltrain2[,highcor])
+
+# remove highly correlated variables
+pmltrain3 <- pmltrain2[, -highcor]
+pmlvalid3 <- pmlvalid2[, -highcor]
+# dim(pmltrain3)
+# [1] 19622    46
+# dim(pmlvalid3)
+# [1] 20   46
+```  
+
+### Cross Validation  
+
+To perform cross validation on the model, the two extracts from the training/testing data were split into training and testing sets.  
+
+## Create Training and Testing Sets  
+
+```{r createTrainTest}
+# Create the training and testing sets
+library(caret)
+inTrain3 <- createDataPartition(pmltrain3$classe,p=0.6,list=FALSE)
+training3 <- pmltrain3[inTrain3,]
+testing3 <- pmltrain3[-inTrain3,]
+
+inTrain2 <- createDataPartition(pmltrain2$classe,p=0.6,list=FALSE)
+training2 <- pmltrain2[inTrain2,]
+testing2 <- pmltrain2[-inTrain2,]
+```  
+
+## Train the Models  
+A decision was made to train the models using the Random Forest method in the Caret package because of its high accuracy.  A decision was made to run the Random Forest method under Caret because the memory requirements for the randomForest package were in excess of the capability of the computer being used for the analysis.
+
+```{r modelfit3, cache=TRUE}
+library(caret)
+library(randomForest)
+
+# If the model file is there...
+my_model_file3 <- "modelFit3.rds"
+if (file.exists(my_model_file3)) {
+    # Read the model in and assign it to a variable.
+    modelFit3 <- readRDS(my_model_file3)
+} else {
+    # Otherwise, run the training.
+    modelFit3 <- train(classe ~ .,data=training3,method="rf",importance=TRUE)
+    saveRDS(modelFit3, file="modelFit3.rds")
+}
+
+
+```
+
+```{r modelfit2, cache=TRUE}
+library(caret)
+library(randomForest)
+
+# If the model file is there...
+my_model_file2 <- "modelFit2.rds"
+if (file.exists(my_model_file2)) {
+    # Read the model in and assign it to a variable.
+    modelFit2 <- readRDS(my_model_file2)
+} else {
+    # Otherwise, run the training.
+    modelFit3 <- train(classe ~ .,data=training2,method="rf",importance=TRUE)
+    saveRDS(modelFit2, file="modelFit2.rds")
+}
+
+```
+
+## Verify the Model  
+The model was verified by applying it to the testing datasets.  
+
+```{r verifymodel}
+#Verify the model
+predictionResults3 <- confusionMatrix(testing3$classe, predict(modelFit3, testing3))
+predictionResults3$table
+predictionResults2 <- confusionMatrix(testing2$classe, predict(modelFit2, testing2))
+predictionResults2$table
+
+#nrow(testing3)
+#sum(predictionResults3$table)
+#nrow(testing2)
+#sum(predictionResults2$table)
+```  
+
+The out of sample error rate was computed for both extracts of the training/testing data. Some out-of-sample error was expected since random forest methods sometimes overfit.  However, it is expected to be small due to the accuracy of the method.   In both testing samples, the error rate was less than 1 percent and the accuracy of both extracts was greater than 99 percent.  The accuracy of the extract with 46 variables was very comparable to that of the extract with 53 variables.  
+
+
+```{r checkOOSError}
+#out-of-sample error rate= total -sum of the diagonal
+oOfSE3 <- sum(predictionResults3$table) - sum(diag(predictionResults3$table))
+oOfSE3
+(oOfSE3/sum(predictionResults3$table)) * 100
+
+
+oOfSE2 <- sum(predictionResults2$table) - sum(diag(predictionResults2$table))
+oOfSE2
+(oOfSE2/sum(predictionResults2$table)) * 100
+predictionResults3$overall
+predictionResults2$overall
+
+```
+
+### Importance of variables  
+
+A quick look was given to the importance of the various predictors in the model in case we wanted to further refine the model by using less predictors.  
+
+```{r variable importance}
+impVar2 <- varImp(modelFit2)$importance
+#impVar2
+varImpPlot(modelFit2$finalModel, sort = TRUE, type = 1, pch = 19, col = 1, cex = 1, main = "Predictors Importance")
+
+impVar3 <- varImp(modelFit3)$importance
+#impVar3
+varImpPlot(modelFit3$finalModel, sort = TRUE, type = 1, pch = 19, col = 1, cex = 1, main = "Predictors Importance")
+
+``` 
+
+
+### Apply Model to Validation Dataset  
+The models based on the two extracts was then applied to the validation data set.  In this case, both models produced the same results.
+
+```{r predictValid}
+predict(modelFit3, pmlvalid3)
+predict(modelFit2, pmlvalid2)
+```
